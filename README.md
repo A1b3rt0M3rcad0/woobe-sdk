@@ -20,17 +20,16 @@ agent = woobe.connect.agent(
 )
 
 # No HTTP request is executed here.
-chat = agent.chat(
-    input="Olá",
-)
+chat = agent.chat(input="Olá")
 
 # The Runtime request starts when events() is actually iterated.
 async for event in chat.events():
-    # event is always a WoobeEvent.
     print(event.type, event.payload)
 ```
 
-To continue the same conversation, reuse the Session returned by the previous interaction:
+`Chat` is lazy: constructing it does not create a Run. Iterating `events()` performs the Runtime request.
+
+When the target policy supports conversational continuity, reuse the Session returned by the previous interaction:
 
 ```python
 chat = agent.chat(
@@ -50,9 +49,7 @@ network = woobe.connect.network(
     key="...",
 )
 
-chat = network.chat(input="Qual é o próximo passo?")
-
-async for event in chat.events():
+async for event in network.chat(input="Qual é o próximo passo?").events():
     print(event)
 ```
 
@@ -62,40 +59,60 @@ The public SDK surface follows four concepts:
 
 ```text
 Target   -> Agent or Network
-Session  -> conversational continuity
+Session  -> longitudinal/correlation boundary
 Run      -> one finite logical execution
-Event    -> what happened during that Run
+Event    -> one semantic event from that Run
 ```
 
-`agent.chat(...)` and `network.chat(...)` only construct a lazy `Chat`. Network activity starts when `chat.events()` is iterated.
+Every accepted Run belongs to a Session. This also applies to stateless Agent execution: when no Session is supplied, Woobe creates an isolated Session for identity and correlation. That does not enable implicit history continuity for a stateless Agent.
 
-Every event yielded by `Chat.events()` is a `WoobeEvent` associated with the canonical Session and Run:
+Every event yielded by `Chat.events()` is a canonical Runtime Protocol v2 `WoobeEvent`:
 
 ```python
-from woobe.events import WoobeEvent
-
 async for event in chat.events():
-    event.session_id
+    event.protocol_version  # 2
+    event.event_id
     event.run_id
-    event.run_kind
+    event.session_id
+    event.run_kind          # "AGENT" | "NETWORK"
     event.sequence
     event.type
+    event.occurred_at
     event.payload
 ```
 
-The SDK preserves Woobe runtime event names and payloads. It does not invent a second event ontology.
+The SDK preserves Woobe event names and payloads. It does not infer identity from payload aliases such as `execution_id` or `network_session_id`.
+
+## `WoobeEvent`
+
+```python
+class WoobeEvent(BaseModel):
+    protocol_version: Literal[2]
+    event_id: str
+    run_id: str
+    session_id: str
+    run_kind: Literal["AGENT", "NETWORK"]
+    sequence: int
+    type: str
+    occurred_at: datetime
+    payload: dict[str, Any]
+```
+
+All fields above are mandatory for semantic events. The SDK validates the Runtime v2 envelope instead of fabricating missing identity or ordering metadata.
+
+Transport/control frames are different. Heartbeats, realtime-degradation notices and pre-Acceptance errors do not pretend to be semantic Run events. They are handled internally by the SDK and are not yielded as `WoobeEvent` objects.
 
 ## Reattach and duplicate-Run safety
 
-A stream connection is an observer of a Run; it does not own the Run.
+A stream connection observes a Run; it does not own it.
 
-Once the canonical `run_id` is known, a transport interruption is recovered through the Woobe reattach endpoint for the **same Run**. The SDK does not submit a second Agent execution merely because SSE disconnected.
+Once the canonical `run_id` is known, a transport interruption is recovered through the reattach endpoint for the **same Run**:
 
 ```text
 POST /v1/run/stream
         |
         v
- canonical run_id
+ canonical run_id + session_id
         |
    connection loss
         |
@@ -103,37 +120,33 @@ POST /v1/run/stream
 GET /v1/runs/{run_id}/stream
         |
         v
+ run.state @ high watermark
+        |
+        v
      same Run
 ```
 
-If only the Session is known, the SDK can resolve the active Run through `/v1/sessions/{session_id}/active-run` before reattaching. Network initial retries reuse one idempotency key because the current Network public runtime supports that contract. Agent recovery fails closed if the initial connection dies before either Run or Session identity can be recovered; retrying an unsafe POST could create a second logical execution.
+If only the Session is known, the SDK can resolve the active Run through `/v1/sessions/{session_id}/active-run` before reattaching.
 
-## `WoobeEvent`
+The SDK never submits a second Agent execution after learning the canonical Run ID. If the initial Agent connection is lost before identity can be recovered safely, it fails closed rather than risking a duplicate Run. Network create retries reuse one idempotency key for the same logical execution.
 
-```python
-class WoobeEvent(BaseModel):
-    event_id: str | None
-    session_id: str
-    run_id: str
-    run_kind: Literal["AGENT", "NETWORK"]
-    sequence: int | None
-    type: str
-    occurred_at: datetime | None
-    scope_type: str | None
-    scope_id: str | None
-    payload: dict[str, Any]
-```
+## Sequence handling
 
-`session_id` and `run_id` are mandatory on events exposed to application code. Fields that are not yet uniformly exposed by every Woobe runtime frame, such as `event_id`, `occurred_at` and scope metadata, remain optional rather than being fabricated by the SDK.
+`sequence` is the semantic ordering contract. The SSE `id:` field is a transport cursor and, when present for a semantic event, must match the canonical sequence.
+
+The SDK:
+
+- ignores stale or duplicate incremental events at or below the local sequence;
+- detects sequence gaps and reattaches instead of guessing;
+- treats `run.state` as replacement state at its high watermark;
+- validates that Run, Session and Run kind do not change inside one `Chat`.
 
 ## Configuration
 
 The default hosted endpoint is `https://api.woobe.com.br`. Self-hosted environments can provide a base URL explicitly or through `WOOBE_BASE_URL`:
 
 ```python
-woobe = Woobe(
-    base_url="https://woobe.internal.example",
-)
+woobe = Woobe(base_url="https://woobe.internal.example")
 ```
 
 For long-lived processes, close the underlying async HTTP client on shutdown:
@@ -172,4 +185,4 @@ pytest
 ruff check .
 ```
 
-The integration branch is `master`. Feature and fix branches should start from `master` and target `master` through focused pull requests.
+Pull requests run the same quality gate on supported Python versions. The integration branch is `master`.

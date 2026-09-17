@@ -15,11 +15,11 @@ async for event in chat.events():
     ...
 ```
 
-This keeps side effects explicit and prevents a Run from starting merely because an object was constructed.
+This prevents a Run from starting merely because an object was constructed.
 
 ## Initial request
 
-The SDK translates the public Python shape into the Woobe Runtime API contract:
+The SDK maps the Python call to the public Runtime API:
 
 ```text
 agent.chat(input="Olá", session_id=...)
@@ -32,25 +32,53 @@ POST /v1/run/stream
 }
 ```
 
-Agent and Network Runtime Keys use the same public Runtime API surface. The server resolves the target from the key binding.
+Agent and Network Runtime Keys use the same public Runtime API surface. The server resolves the target from the Runtime Key binding.
 
-## Canonical identity
+## Canonical semantic envelope
 
-As Runtime frames arrive, the SDK records the canonical `run_id` and `session_id`. Frames received before both identities are known are not exposed as partially identified `WoobeEvent` objects.
+Runtime Protocol v2 makes every semantic event self-contained:
 
-Once known, identity is immutable for the Chat. A stream that changes Run or Session identity is a protocol error.
+```json
+{
+  "protocol_version": 2,
+  "event_id": "019...",
+  "run_id": "019...",
+  "session_id": "019...",
+  "run_kind": "AGENT",
+  "sequence": 42,
+  "type": "token",
+  "occurred_at": "2026-09-16T20:30:00Z",
+  "payload": {
+    "content": "Olá"
+  }
+}
+```
+
+The SDK validates this envelope directly. It does not infer canonical identity from `execution_id`, `network_session_id`, nested `data`, SSE cursor values or payload fields.
+
+For Network execution, `run_id` is the canonical Network execution identity, `session_id` is the canonical Network Session identity and `run_kind` is `NETWORK`.
+
+Once the first semantic event is accepted, Run and Session identity are immutable for that `Chat`. `run_kind` must also match the connected target.
+
+## Transport/control frames
+
+Heartbeat, realtime-degradation signals and failures before Run acceptance are transport/control frames. They use protocol v2 but do not invent `run_id`, `session_id`, `event_id` or semantic `sequence`.
+
+These frames are handled internally. `Chat.events()` yields only semantic `WoobeEvent` objects.
+
+A pre-Acceptance `error` control frame becomes a request error. Heartbeats and non-fatal control signals do not enter the application's semantic event stream.
 
 ## Sequence semantics
 
-Logical sequence belongs to the runtime protocol; transport cursors do not.
+`sequence` is the logical ordering contract for semantic events. The SSE `id:` field is not used to manufacture a missing sequence; if present, it must agree with the envelope sequence.
 
-For incremental frames:
+For incremental events:
 
 - sequence `<=` the last accepted sequence is stale/duplicate and is ignored;
-- sequence `> last + 1` is a gap and causes reattach/reconciliation;
+- sequence `> last + 1` is a gap and triggers recovery;
 - contiguous sequence advances the local high watermark.
 
-For `run.state`, a newer snapshot may advance directly to its high watermark because it is a replacement projection. A durable-only snapshot with `realtime_available=false` is accepted without rewinding the last known realtime sequence.
+`run.state` is replacement state. It may advance directly to the high watermark represented by its snapshot. A durable-only `run.state` with `realtime_available=false` is accepted without rewinding the local realtime sequence.
 
 ## Reattach
 
@@ -69,7 +97,7 @@ run.state @ high watermark
 live events after the snapshot
 ```
 
-The SDK never starts another Agent Run to repair transport.
+The SDK never starts another Agent Run to repair transport after canonical Run identity is known.
 
 If the SDK knows a Session but lost the Run pointer, it first asks:
 
@@ -77,16 +105,20 @@ If the SDK knows a Session but lost the Run pointer, it first asks:
 GET /v1/sessions/{session_id}/active-run
 ```
 
-and then attaches to the returned Run.
+The response is expected to expose canonical `run_id`; the SDK no longer falls back to Network-specific identity aliases.
 
 ## Initial-create failure window
 
-The dangerous window is a connection failure after the server may have accepted work but before the client has learned the canonical Run identity.
+The dangerous window is a connection failure after the server may have accepted work but before the client has learned canonical identity.
 
-For Agent runtime, the current public create contract does not yet provide a general idempotency guarantee for that window. The SDK therefore fails closed instead of automatically POSTing the same logical request again.
+For Agent runtime, the SDK fails closed instead of automatically POSTing the same logical request again when the Run cannot be recovered safely.
 
-Network runtime currently supports an idempotency key. The SDK creates one key per Chat and reuses it if the initial Network create-and-stream request must be retried before a Run ID is known.
+For Network runtime, the SDK creates one idempotency key per Chat and reuses it if the initial create-and-stream request must be retried before a Run ID is known.
 
 ## Terminal events
 
-Terminal runtime events/states end `events()` normally. An Agent or Network execution failure remains a runtime event/state and is not confused with a transport exception. SDK exceptions represent client, protocol, authentication or recovery failures.
+Terminal semantic events or terminal `run.state` end `events()` normally. Agent or Network execution failure remains a Runtime semantic outcome and is distinct from a transport exception.
+
+Terminal statuses include `completed`, `failed`, `cancelled`, `timed_out` and `uncertain`.
+
+The core rule is: the Run belongs to the Runtime; the connection belongs to the observer.

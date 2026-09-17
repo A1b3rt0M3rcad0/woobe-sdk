@@ -78,8 +78,12 @@ class RuntimeTransport:
             return None
         if not isinstance(data, dict):
             raise WoobeProtocolError("Active Run response has an invalid data envelope")
-        run_id = data.get("run_id") or data.get("execution_id")
-        return str(run_id) if run_id else None
+        run_id = data.get("run_id")
+        if run_id is None:
+            return None
+        if not isinstance(run_id, str) or not run_id.strip():
+            raise WoobeProtocolError("Active Run response has an invalid run_id")
+        return run_id
 
     async def _stream(
         self,

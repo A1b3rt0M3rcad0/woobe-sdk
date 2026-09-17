@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Woobe SDK is the Python application boundary for consuming a Woobe Agent or Agent Network. It should make production runtime consumption small without copying production runtime complexity into the application.
+Woobe SDK is the Python application boundary for consuming a Woobe Agent or Agent Network. It keeps production Runtime consumption small without copying server-side execution complexity into the application.
 
 ```text
 application
@@ -20,8 +20,6 @@ Woobe Runtime API
 The SDK does not execute Agents locally.
 
 ## Public surface
-
-The first public surface is deliberately small:
 
 ```text
 Woobe
@@ -57,17 +55,60 @@ Public domain concepts stay at the package root. HTTP and SSE mechanics remain p
 
 ## Boundary rules
 
-The SDK owns transport and consumption behavior only. It may serialize requests, authenticate with Runtime Keys, parse SSE, normalize public events, reject stale/duplicate sequences, detect gaps and reattach an existing Run.
+The SDK owns transport and consumption behavior only. It may serialize requests, authenticate with Runtime Keys, decode SSE, validate Runtime Protocol v2, reject stale/duplicate sequences, detect gaps and reattach an existing Run.
 
 The SDK must not own model selection, Tool execution, RAG, Context Engineering, execution strategies, Run finalization or durable business truth. Those responsibilities belong to Woobe.
 
-## Event contract
+## Runtime Protocol v2 boundary
 
-`WoobeEvent` is the Python representation of a runtime event. It is not a new source of event semantics.
+The Runtime exposes two frame categories.
 
-The SDK guarantees that every event it yields has `session_id`, `run_id`, `run_kind`, `type` and `payload`. Optional event metadata is populated only when the Runtime API supplies it. Missing metadata is never fabricated.
+Semantic events are canonical and self-contained:
 
-The current `chat()` primitive is intentionally session-backed. A future non-conversational/stateless execution primitive should be modeled separately instead of weakening Chat semantics.
+```text
+protocol_version = 2
+event_id
+run_id
+session_id
+run_kind
+sequence
+type
+occurred_at
+payload
+```
+
+`WoobeEvent` is a typed representation of that exact semantic contract. The SDK does not recover identity from legacy aliases, does not move arbitrary top-level fields into `payload`, and does not fabricate missing sequence or timestamps.
+
+Transport/control frames are intentionally different. Heartbeats, realtime-degradation notices and pre-Acceptance failures have no semantic Run identity. They remain internal to transport handling and are not yielded as `WoobeEvent`.
+
+This distinction keeps the public iterator semantically strong: application code receiving a `WoobeEvent` always has complete Run and Session identity.
+
+## Chat responsibilities
+
+`Chat` is lazy and stateful only as a client-side observer:
+
+```text
+construct Chat
+    |
+    | no request
+    v
+iterate events()
+    |
+    v
+POST create-and-observe
+    |
+    +-- remember canonical run_id/session_id
+    +-- validate run_kind
+    +-- enforce logical sequence
+    +-- yield semantic WoobeEvent
+    |
+ transport loss
+    |
+    v
+GET reattach same Run
+```
+
+Once identity is known, a stream cannot change Run, Session or Run kind. A violation is a protocol error.
 
 ## Dependency direction
 

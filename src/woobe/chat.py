@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
 from uuid import uuid4
 
 from woobe._transport.http import RuntimeTransport
-from woobe._transport.sse import SseFrame
+from woobe._transport.sse import RuntimeControlFrame, parse_runtime_frame
 from woobe.errors import (
     WoobeConnectionError,
     WoobeProtocolError,
@@ -28,30 +26,6 @@ _TERMINAL_EVENT_TYPES = {
     "execution_cancelled",
     "execution_timed_out",
 }
-_IDENTITY_KEYS = {
-    "type",
-    "run_id",
-    "execution_id",
-    "session_id",
-    "network_session_id",
-    "sequence",
-    "event_id",
-    "occurred_at",
-    "created_at",
-    "scope_type",
-    "scope_id",
-}
-
-
-@dataclass(slots=True)
-class _PendingEvent:
-    type: str
-    sequence: int | None
-    event_id: str | None
-    occurred_at: Any
-    scope_type: str | None
-    scope_id: str | None
-    payload: dict[str, Any]
 
 
 class Chat:
@@ -99,10 +73,10 @@ class Chat:
         return self._run_id
 
     async def events(self):
-        """Execute lazily and yield normalized ``WoobeEvent`` objects.
+        """Execute lazily and yield canonical semantic ``WoobeEvent`` objects.
 
-        After a canonical Run ID is known, recovery always uses the reattach GET.
-        The SDK never submits a second Agent POST merely to recover a broken stream.
+        Transport/control frames remain internal to the SDK. After a canonical Run ID
+        is known, recovery always uses the reattach GET for that same Run.
         """
 
         if self._started:
@@ -111,7 +85,6 @@ class Chat:
 
         mode: Literal["new", "reattach"] = "new"
         reconnect_attempt = 0
-        pending: list[_PendingEvent] = []
 
         while True:
             try:
@@ -127,27 +100,22 @@ class Chat:
                 )
 
                 async for frame in source:
-                    item = self._normalize(frame)
-                    if not self._accept_sequence(item):
+                    parsed = parse_runtime_frame(frame)
+                    if isinstance(parsed, RuntimeControlFrame):
+                        self._handle_control_frame(parsed)
                         continue
-                    pending.append(item)
 
-                    if self._run_id is not None and self._session_id is not None:
-                        for ready in pending:
-                            yield self._to_event(ready)
-                        pending.clear()
+                    self._accept_identity(parsed)
+                    if not self._accept_sequence(parsed):
+                        continue
 
-                    if self._is_terminal(item):
-                        if pending:
-                            raise WoobeProtocolError(
-                                "Terminal Runtime state was received before run/session identity"
-                            )
+                    yield parsed
+                    if self._is_terminal(parsed):
                         return
 
                 raise WoobeConnectionError("Runtime stream ended before terminal state")
 
             except (WoobeConnectionError, WoobeStreamGapError) as exc:
-                pending.clear()
                 mode, reconnect_attempt = await self._recover(
                     mode=mode,
                     reconnect_attempt=reconnect_attempt,
@@ -156,12 +124,39 @@ class Chat:
             except WoobeRequestError as exc:
                 if not exc.retryable:
                     raise
-                pending.clear()
                 mode, reconnect_attempt = await self._recover(
                     mode=mode,
                     reconnect_attempt=reconnect_attempt,
                     cause=exc,
                 )
+
+    def _accept_identity(self, event: WoobeEvent) -> None:
+        if event.run_kind != self._target_kind:
+            raise WoobeProtocolError(
+                f"Runtime returned run_kind={event.run_kind} for {self._target_kind} target"
+            )
+        if self._run_id is not None and self._run_id != event.run_id:
+            raise WoobeProtocolError(
+                f"Runtime stream changed Run identity from {self._run_id} to {event.run_id}"
+            )
+        if self._session_id is not None and self._session_id != event.session_id:
+            raise WoobeProtocolError(
+                "Runtime stream returned a Session different from the requested Session"
+            )
+        self._run_id = event.run_id
+        self._session_id = event.session_id
+
+    @staticmethod
+    def _handle_control_frame(frame: RuntimeControlFrame) -> None:
+        if frame.type != "error":
+            return
+        message = frame.payload.get("message") or frame.payload.get("detail")
+        if not isinstance(message, str) or not message.strip():
+            message = "Woobe Runtime rejected the request before Run acceptance"
+        status_code = frame.payload.get("status_code")
+        if isinstance(status_code, bool) or not isinstance(status_code, int):
+            status_code = None
+        raise WoobeRequestError(message, status_code=status_code)
 
     async def _recover(
         self,
@@ -203,69 +198,11 @@ class Chat:
         if delay > 0:
             await asyncio.sleep(delay)
 
-    def _normalize(self, frame: SseFrame) -> _PendingEvent:
-        raw = dict(frame.data)
-        nested = raw.get("data")
-        is_network_envelope = isinstance(nested, dict) and (
-            "execution_id" in raw or "protocol_version" in raw
-        )
-        source = dict(nested) if is_network_envelope else raw
+    def _accept_sequence(self, event: WoobeEvent) -> bool:
+        sequence = event.sequence
 
-        run_id = self._first_text(
-            raw.get("run_id"),
-            raw.get("execution_id"),
-            source.get("run_id"),
-            source.get("execution_id"),
-        )
-        if run_id is not None:
-            if self._run_id is not None and self._run_id != run_id:
-                raise WoobeProtocolError(
-                    f"Runtime stream changed Run identity from {self._run_id} to {run_id}"
-                )
-            self._run_id = run_id
-
-        session_id = self._first_text(
-            raw.get("session_id"),
-            raw.get("network_session_id"),
-            source.get("session_id"),
-            source.get("network_session_id"),
-        )
-        if session_id is not None:
-            if self._session_id is not None and self._session_id != session_id:
-                raise WoobeProtocolError(
-                    "Runtime stream returned a Session different from the requested Session"
-                )
-            self._session_id = session_id
-
-        sequence = self._sequence_of(raw, source, frame.event_id)
-        event_id = self._first_text(raw.get("event_id"), source.get("event_id"))
-        occurred_at = (
-            raw.get("occurred_at")
-            or raw.get("created_at")
-            or source.get("occurred_at")
-            or source.get("created_at")
-        )
-        scope_type = self._first_text(raw.get("scope_type"), source.get("scope_type"))
-        scope_id = self._first_text(raw.get("scope_id"), source.get("scope_id"))
-
-        payload = {key: value for key, value in source.items() if key not in _IDENTITY_KEYS}
-        return _PendingEvent(
-            type=frame.event,
-            sequence=sequence,
-            event_id=event_id,
-            occurred_at=occurred_at,
-            scope_type=scope_type,
-            scope_id=scope_id,
-            payload=payload,
-        )
-
-    def _accept_sequence(self, item: _PendingEvent) -> bool:
-        sequence = item.sequence
-        if sequence is None:
-            return True
-
-        if item.type == "run.state":
-            if item.payload.get("realtime_available") is False:
+        if event.type == "run.state":
+            if event.payload.get("realtime_available") is False:
                 return True
             if self._last_sequence is not None and sequence < self._last_sequence:
                 return False
@@ -283,72 +220,16 @@ class Chat:
         self._last_sequence = sequence
         return True
 
-    def _to_event(self, item: _PendingEvent) -> WoobeEvent:
-        run_id = self._require_run_id()
-        session_id = self._session_id
-        if session_id is None:
-            raise WoobeProtocolError("Runtime event does not have a Session identity")
-
-        occurred_at = item.occurred_at
-        if isinstance(occurred_at, datetime):
-            parsed_occurred_at = occurred_at
-        elif isinstance(occurred_at, str) and occurred_at:
-            try:
-                parsed_occurred_at = datetime.fromisoformat(occurred_at.replace("Z", "+00:00"))
-            except ValueError:
-                parsed_occurred_at = None
-        else:
-            parsed_occurred_at = None
-
-        return WoobeEvent(
-            event_id=item.event_id,
-            session_id=session_id,
-            run_id=run_id,
-            run_kind=self._target_kind,
-            sequence=item.sequence,
-            type=item.type,
-            occurred_at=parsed_occurred_at,
-            scope_type=item.scope_type,
-            scope_id=item.scope_id,
-            payload=item.payload,
-        )
-
     @staticmethod
-    def _is_terminal(item: _PendingEvent) -> bool:
-        if item.type in _TERMINAL_EVENT_TYPES:
+    def _is_terminal(event: WoobeEvent) -> bool:
+        if event.type in _TERMINAL_EVENT_TYPES:
             return True
-        if item.type != "run.state":
+        if event.type != "run.state":
             return False
-        status = item.payload.get("status")
+        status = event.payload.get("status")
         return isinstance(status, str) and status.lower() in _TERMINAL_STATUSES
 
     def _require_run_id(self) -> str:
         if self._run_id is None:
             raise WoobeProtocolError("Canonical Run ID is not available")
         return self._run_id
-
-    @staticmethod
-    def _first_text(*values: Any) -> str | None:
-        for value in values:
-            if value is None:
-                continue
-            text = str(value).strip()
-            if text:
-                return text
-        return None
-
-    @staticmethod
-    def _sequence_of(
-        raw: dict[str, Any],
-        source: dict[str, Any],
-        event_id: str | None,
-    ) -> int | None:
-        candidates = (raw.get("sequence"), source.get("sequence"), event_id)
-        for value in candidates:
-            if isinstance(value, bool) or value is None:
-                continue
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                continue
-        return None

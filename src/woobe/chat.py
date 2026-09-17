@@ -182,7 +182,8 @@ class Chat:
 
             raise WoobeRecoveryError(
                 "Runtime connection failed before the canonical Run could be recovered; "
-                "the SDK will not submit another Agent execution because that could duplicate the Run"
+                "the SDK will not submit another Agent execution because "
+                "that could duplicate the Run"
             ) from cause
 
         if reconnect_attempt >= self._max_reconnect_attempts:

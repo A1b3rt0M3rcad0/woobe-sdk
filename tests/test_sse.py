@@ -1,4 +1,4 @@
-from datetime import timezone
+from datetime import UTC
 
 import pytest
 
@@ -40,7 +40,7 @@ def test_parse_semantic_runtime_event_v2() -> None:
     assert event.run_kind == "AGENT"
     assert event.sequence == 7
     assert event.payload == {"content": "Olá"}
-    assert event.occurred_at.tzinfo == timezone.utc
+    assert event.occurred_at.tzinfo == UTC
 
 
 def test_parse_transport_control_frame_without_semantic_identity() -> None:

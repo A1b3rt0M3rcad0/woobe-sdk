@@ -53,6 +53,38 @@ class RuntimeTransport:
         ):
             yield frame
 
+    async def validate_output_context(
+        self,
+        *,
+        key: str,
+        output_context: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        try:
+            response = await self._http().post(
+                "/v1/output-context/validate",
+                headers=self._json_headers(key),
+                json={"output_context": output_context},
+            )
+        except httpx.RequestError as exc:
+            raise WoobeConnectionError(
+                "Could not validate Woobe Output Context"
+            ) from exc
+
+        await self._raise_for_status(response)
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise WoobeProtocolError(
+                "Output Context validation response contains invalid JSON"
+            ) from exc
+
+        data = body.get("data") if isinstance(body, dict) else None
+        if body.get("success") is not True or not isinstance(data, dict):
+            raise WoobeProtocolError(
+                "Output Context validation response has an invalid envelope"
+            )
+        return data
+
     async def stream_run(self, *, key: str, run_id: str) -> AsyncIterator[SseFrame]:
         async for frame in self._stream(
             method="GET",
@@ -121,6 +153,14 @@ class RuntimeTransport:
             raise
         except httpx.RequestError as exc:
             raise WoobeConnectionError("Woobe Runtime stream connection failed") from exc
+
+    @staticmethod
+    def _json_headers(key: str) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {key}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
 
     @staticmethod
     def _headers(key: str) -> dict[str, str]:

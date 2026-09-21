@@ -39,9 +39,52 @@ def output_context_schema(output_context: OutputContextInput) -> dict[str, Any] 
     if isinstance(output_context, dict):
         return dict(output_context)
     if isinstance(output_context, BaseModel):
-        return type(output_context).model_json_schema()
+        return _inline_local_refs(type(output_context).model_json_schema())
     if isinstance(output_context, type) and issubclass(output_context, BaseModel):
-        return output_context.model_json_schema()
+        return _inline_local_refs(output_context.model_json_schema())
     raise TypeError(
         "output_context must be a Pydantic BaseModel type, BaseModel instance, dict, or None"
     )
+
+
+def _inline_local_refs(schema: dict[str, Any]) -> dict[str, Any]:
+    definitions = schema.get("$defs")
+    if not isinstance(definitions, dict):
+        definitions = schema.get("definitions")
+    if not isinstance(definitions, dict):
+        return schema
+
+    def resolve(value: Any, stack: tuple[str, ...] = ()) -> Any:
+        if isinstance(value, list):
+            return [resolve(item, stack) for item in value]
+        if not isinstance(value, dict):
+            return value
+
+        ref = value.get("$ref")
+        if isinstance(ref, str):
+            name = _local_ref_name(ref)
+            if name is not None and name in definitions and name not in stack:
+                target = resolve(definitions[name], (*stack, name))
+                if isinstance(target, dict):
+                    extras = {
+                        key: resolve(child, stack)
+                        for key, child in value.items()
+                        if key != "$ref"
+                    }
+                    return {**target, **extras}
+
+        return {
+            key: resolve(child, stack)
+            for key, child in value.items()
+            if key not in {"$defs", "definitions"}
+        }
+
+    resolved = resolve(schema)
+    return resolved if isinstance(resolved, dict) else schema
+
+
+def _local_ref_name(ref: str) -> str | None:
+    for prefix in ("#/$defs/", "#/definitions/"):
+        if ref.startswith(prefix):
+            return ref.removeprefix(prefix).replace("~1", "/").replace("~0", "~")
+    return None

@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Literal
 
+from pydantic import ValidationError as PydanticValidationError
+
 from woobe.chat import Chat
+from woobe.contracts import (
+    OutputContextInput,
+    OutputContextValidation,
+    output_context_schema,
+)
+from woobe.errors import WoobeProtocolError
 
 if TYPE_CHECKING:
     from woobe.client import Woobe
@@ -24,6 +32,21 @@ class _RuntimeTarget:
     @property
     def alias(self) -> str:
         return self._alias
+
+    async def validate_output_context(
+        self,
+        output_context: OutputContextInput,
+    ) -> OutputContextValidation:
+        data = await self._client._transport.validate_output_context(
+            key=self._key,
+            output_context=output_context_schema(output_context),
+        )
+        try:
+            return OutputContextValidation.model_validate(data)
+        except PydanticValidationError as exc:
+            raise WoobeProtocolError(
+                "Output Context validation response has an invalid data envelope"
+            ) from exc
 
     def chat(
         self,

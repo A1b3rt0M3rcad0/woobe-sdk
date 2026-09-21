@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from woobe.chat import Chat
 
@@ -25,7 +25,13 @@ class _RuntimeTarget:
     def alias(self) -> str:
         return self._alias
 
-    def chat(self, *, input: str, session_id: str | None = None) -> Chat:
+    def chat(
+        self,
+        *,
+        input: str,
+        session_id: str | None = None,
+        external_context: dict[str, Any] | None = None,
+    ) -> Chat:
         if not input.strip():
             raise ValueError("input must not be empty")
         return Chat(
@@ -35,6 +41,7 @@ class _RuntimeTarget:
             key=self._key,
             input=input,
             session_id=session_id,
+            external_context=external_context,
             max_reconnect_attempts=self._client._max_reconnect_attempts,
             reconnect_base_delay_seconds=self._client._reconnect_base_delay_seconds,
         )

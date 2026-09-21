@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 from woobe._transport.http import RuntimeTransport
@@ -44,6 +44,7 @@ class Chat:
         key: str,
         input: str,
         session_id: str | None,
+        external_context: dict[str, Any] | None,
         max_reconnect_attempts: int,
         reconnect_base_delay_seconds: float,
     ) -> None:
@@ -53,6 +54,9 @@ class Chat:
         self._key = key
         self._input = input
         self._session_id = session_id
+        self._external_context = (
+            dict(external_context) if external_context is not None else None
+        )
         self._run_id: str | None = None
         self._last_sequence: int | None = None
         self._max_reconnect_attempts = max_reconnect_attempts
@@ -93,6 +97,7 @@ class Chat:
                         key=self._key,
                         message=self._input,
                         session_id=self._session_id,
+                        external_context=self._external_context,
                         idempotency_key=self._idempotency_key,
                     )
                     if mode == "new"

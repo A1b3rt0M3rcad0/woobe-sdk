@@ -28,7 +28,7 @@ Woobe
        |-- agent(alias, key)
        `-- network(alias, key)
               |
-              `-- chat(input, session_id?)
+              `-- chat(input, session_id?, external_context?)
                          |
                          `-- events() -> AsyncIterator[WoobeEvent]
 ```

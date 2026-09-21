@@ -51,6 +51,7 @@ class _FakeTransport:
         self.include_heartbeat = include_heartbeat
         self.calls: list[str] = []
         self.idempotency_keys: list[str] = []
+        self.external_contexts: list[dict | None] = []
 
     async def aclose(self) -> None:
         return None
@@ -66,11 +67,13 @@ class _FakeTransport:
         key: str,
         message: str,
         session_id: str | None,
+        external_context: dict | None,
         idempotency_key: str,
     ) -> AsyncIterator[SseFrame]:
         del key, message, session_id
         self.calls.append("new")
         self.idempotency_keys.append(idempotency_key)
+        self.external_contexts.append(external_context)
 
         if self.fail_before_identity:
             raise WoobeConnectionError("connection lost")
@@ -125,6 +128,30 @@ async def test_events_start_request_and_yield_only_semantic_woobe_events() -> No
     assert all(event.run_kind == "AGENT" for event in events)
     assert chat.run_id == "run-1"
     assert chat.session_id == "session-1"
+
+
+@pytest.mark.asyncio
+async def test_external_context_is_forwarded_only_on_initial_run_request() -> None:
+    transport = _FakeTransport(disconnect_once=True)
+    woobe = Woobe(base_url="http://unused", reconnect_base_delay_seconds=0)
+    woobe._transport = transport
+    agent = woobe.connect.agent(alias="support", key="runtime-key")
+
+    external_context = {
+        "customer_id": "customer-123",
+        "language": "pt-BR",
+    }
+    events = [
+        event
+        async for event in agent.chat(
+            input="Olá",
+            external_context=external_context,
+        ).events()
+    ]
+
+    assert [event.type for event in events] == ["meta", "token", "run.state", "done"]
+    assert transport.calls == ["new", "reattach"]
+    assert transport.external_contexts == [external_context]
 
 
 @pytest.mark.asyncio

@@ -41,6 +41,24 @@ async for event in chat.events():
     print(event)
 ```
 
+When the selected Release declares an External Context contract, provide its values on the Run:
+
+```python
+chat = agent.chat(
+    input="Consulte meus pedidos",
+    external_context={
+        "customer_id": "customer-123",
+        "language": "pt-BR",
+    },
+)
+
+async for event in chat.events():
+    print(event)
+```
+
+The Runtime validates `external_context` against the Agent or Network Release contract during Acceptance. The SDK sends it only when creating the Run; reattach observes the already accepted Run and does not resend context.
+
+
 The same surface is available for Networks:
 
 ```python

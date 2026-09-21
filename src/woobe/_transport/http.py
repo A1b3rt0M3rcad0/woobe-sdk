@@ -36,11 +36,14 @@ class RuntimeTransport:
         key: str,
         message: str,
         session_id: str | None,
+        external_context: dict[str, Any] | None,
         idempotency_key: str,
     ) -> AsyncIterator[SseFrame]:
         payload: dict[str, Any] = {"message": message}
         if session_id is not None:
             payload["session_id"] = session_id
+        if external_context is not None:
+            payload["external_context"] = external_context
         async for frame in self._stream(
             method="POST",
             path="/v1/run/stream",

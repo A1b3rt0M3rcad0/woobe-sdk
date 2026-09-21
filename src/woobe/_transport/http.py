@@ -78,7 +78,11 @@ class RuntimeTransport:
                 "Output Context validation response contains invalid JSON"
             ) from exc
 
-        data = body.get("data") if isinstance(body, dict) else None
+        if not isinstance(body, dict):
+            raise WoobeProtocolError(
+                "Output Context validation response has an invalid envelope"
+            )
+        data = body.get("data")
         if body.get("success") is not True or not isinstance(data, dict):
             raise WoobeProtocolError(
                 "Output Context validation response has an invalid envelope"

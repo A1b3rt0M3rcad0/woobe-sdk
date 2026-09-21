@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from woobe._transport.http import RuntimeTransport
+from woobe.errors import WoobeProtocolError
 
 
 @pytest.mark.asyncio
@@ -151,7 +152,7 @@ async def test_validate_output_context_rejects_invalid_response_envelope() -> No
         transport=httpx.MockTransport(handler),
     )
     try:
-        with pytest.raises(Exception, match="invalid envelope"):
+        with pytest.raises(WoobeProtocolError, match="invalid envelope"):
             await transport.validate_output_context(
                 key="runtime-key",
                 output_context=None,

@@ -22,17 +22,22 @@ This prevents a Run from starting merely because an object was constructed.
 The SDK maps the Python call to the public Runtime API:
 
 ```text
-agent.chat(input="Olá", session_id=...)
+agent.chat(input="Olá", session_id=..., external_context=...)
               |
               v
 POST /v1/run/stream
 {
   "message": "Olá",
-  "session_id": "..."
+  "session_id": "...",
+  "external_context": {
+    "customer_id": "customer-123"
+  }
 }
 ```
 
 Agent and Network Runtime Keys use the same public Runtime API surface. The server resolves the target from the Runtime Key binding.
+
+External Context is an input to Run Acceptance. When supplied, the SDK sends it only on the initial create-and-observe request. Reattach requests identify the existing Run by `run_id` and do not resend `external_context`.
 
 ## Canonical semantic envelope
 

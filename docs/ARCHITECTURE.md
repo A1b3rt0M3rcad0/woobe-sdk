@@ -28,12 +28,16 @@ Woobe
        |-- agent(alias, key)
        `-- network(alias, key)
               |
+              |-- validate_output_context(model_or_schema)
+              |
               `-- chat(input, session_id?, external_context?)
                          |
                          `-- events() -> AsyncIterator[WoobeEvent]
 ```
 
 `alias` is an application-side label. Runtime routing and authorization are determined by the Runtime Key issued by Woobe.
+
+Output Context validation is a preflight client boundary. The SDK may translate a local Pydantic model into JSON Schema and call the Runtime validator, but Woobe remains authoritative for the published Release contract and compatibility result.
 
 ## Package layout
 

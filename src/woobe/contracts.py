@@ -37,7 +37,7 @@ def output_context_schema(output_context: OutputContextInput) -> dict[str, Any] 
     if output_context is None:
         return None
     if isinstance(output_context, dict):
-        return dict(output_context)
+        return _inline_local_refs(dict(output_context))
     if isinstance(output_context, BaseModel):
         return _inline_local_refs(type(output_context).model_json_schema())
     if isinstance(output_context, type) and issubclass(output_context, BaseModel):

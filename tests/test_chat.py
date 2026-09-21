@@ -154,7 +154,6 @@ async def test_external_context_is_forwarded_only_on_initial_run_request() -> No
     assert transport.external_contexts == [external_context]
 
 
-
 @pytest.mark.asyncio
 async def test_transport_disconnect_reattaches_same_run_without_second_post() -> None:
     transport = _FakeTransport(disconnect_once=True)

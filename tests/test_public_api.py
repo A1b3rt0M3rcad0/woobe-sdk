@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from pydantic import BaseModel
 
 from woobe import Woobe
@@ -47,6 +48,7 @@ def test_chat_is_lazy_and_has_no_runtime_identity_before_iteration() -> None:
     assert chat.target_alias == "support"
 
 
+@pytest.mark.asyncio
 async def test_agent_validates_pydantic_output_context() -> None:
     transport = _ContractTransport()
     woobe = Woobe(base_url="http://unused")
@@ -73,6 +75,7 @@ async def test_agent_validates_pydantic_output_context() -> None:
     ]
 
 
+@pytest.mark.asyncio
 async def test_network_uses_same_output_context_validation_surface() -> None:
     transport = _ContractTransport()
     woobe = Woobe(base_url="http://unused")

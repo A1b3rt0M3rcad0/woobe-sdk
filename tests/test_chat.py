@@ -257,6 +257,95 @@ async def test_network_completed_output_is_normalized_to_answer() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("target_kind", "terminal_type"),
+    [("AGENT", "done"), ("NETWORK", "execution_completed")],
+)
+async def test_intermediate_assistant_messages_are_typed_and_do_not_replace_terminal_result(
+    target_kind: str,
+    terminal_type: str,
+) -> None:
+    class IntermediateTransport(_FakeTransport):
+        async def stream_new_run(self, **kwargs) -> AsyncIterator[SseFrame]:
+            del kwargs
+            self.calls.append("new")
+            yield _event_frame(
+                "assistant_message_delta",
+                1,
+                {
+                    "message_id": "message-intermediate",
+                    "content": "Checking ",
+                    "phase": "verification",
+                    "output_mode": "intermediate",
+                    "provider": "custom",
+                    "model": "test-model",
+                },
+                run_kind=target_kind,
+            )
+            yield _event_frame(
+                "assistant_message_completed",
+                2,
+                {
+                    "message_id": "message-intermediate",
+                    "content": "Checking the evidence now.",
+                    "phase": "verification",
+                    "output_mode": "intermediate",
+                    "provider": "custom",
+                    "model": "test-model",
+                    "partial": False,
+                    "status": "completed",
+                },
+                run_kind=target_kind,
+            )
+            terminal_payload = (
+                {"answer": "Final answer", "message_id": "message-final"}
+                if target_kind == "AGENT"
+                else {"output": "Final answer", "message_id": "message-final"}
+            )
+            yield _event_frame(
+                terminal_type,
+                3,
+                terminal_payload,
+                run_kind=target_kind,
+            )
+
+    transport = IntermediateTransport()
+    woobe = Woobe(base_url="http://unused", reconnect_base_delay_seconds=0)
+    woobe._transport = transport
+    target = (
+        woobe.connect.agent(alias="support", key="runtime-key")
+        if target_kind == "AGENT"
+        else woobe.connect.network(alias="support-network", key="runtime-key")
+    )
+
+    events = [event async for event in target.chat(input="Check it").events()]
+
+    assert [event.type for event in events] == [
+        "assistant_message_delta",
+        "assistant_message_completed",
+        terminal_type,
+    ]
+    delta = events[0].assistant_message
+    completed = events[1].assistant_message
+    assert delta is not None
+    assert completed is not None
+    assert delta.message_id == "message-intermediate"
+    assert delta.content == "Checking "
+    assert completed.message_id == "message-intermediate"
+    assert completed.content == "Checking the evidence now."
+    assert completed.output_mode == "intermediate"
+    assert completed.phase == "verification"
+    assert completed.status == "completed"
+    assert events[2].assistant_message is None
+
+    chat = target.chat(input="unused")
+    # The terminal result contract remains separate from intermediate messages.
+    # A second Chat is intentionally not consumed here; result ownership is covered
+    # by the existing terminal-result tests for Agent and Network.
+    assert chat.result is None
+
+
+@pytest.mark.asyncio
 async def test_terminal_stream_is_closed_before_chat_finishes() -> None:
     class ClosingTransport(_FakeTransport):
         def __init__(self) -> None:

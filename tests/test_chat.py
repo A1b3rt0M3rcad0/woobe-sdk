@@ -344,6 +344,160 @@ async def test_intermediate_assistant_messages_are_typed_and_do_not_replace_term
 
 
 @pytest.mark.asyncio
+async def test_pre_tool_promotion_stays_intermediate_and_result_stays_final() -> None:
+    class PromotionTransport(_FakeTransport):
+        async def stream_new_run(self, **kwargs) -> AsyncIterator[SseFrame]:
+            del kwargs
+            self.calls.append("new")
+            yield _event_frame(
+                "token",
+                1,
+                {
+                    "message_id": "message-final",
+                    "content": "Vou procurar.",
+                    "output_mode": "final",
+                },
+            )
+            yield _event_frame(
+                "assistant_message_completed",
+                2,
+                {
+                    "message_id": "message-progress",
+                    "content": "Vou procurar.",
+                    "phase": "capability_response_generation",
+                    "output_mode": "intermediate",
+                    "partial": False,
+                    "status": "completed",
+                },
+            )
+            yield _event_frame(
+                "token_retract",
+                3,
+                {
+                    "message_id": "message-final",
+                    "content_length": len("Vou procurar."),
+                    "reason": "tool_call_selected",
+                },
+            )
+            yield _event_frame(
+                "done",
+                4,
+                {
+                    "answer": "Resultado final.",
+                    "message_id": "message-final",
+                },
+            )
+
+    transport = PromotionTransport()
+    woobe = Woobe(base_url="http://unused", reconnect_base_delay_seconds=0)
+    woobe._transport = transport
+    chat = woobe.connect.agent(alias="support", key="runtime-key").chat(
+        input="Pesquise",
+    )
+
+    events = [event async for event in chat.events()]
+
+    assert [event.type for event in events] == [
+        "token",
+        "assistant_message_completed",
+        "token_retract",
+        "done",
+    ]
+    assert events[1].assistant_messages[0].message_id == "message-progress"
+    assert events[1].assistant_messages[0].content == "Vou procurar."
+    assert events[1].assistant_messages[0].output_mode == "intermediate"
+    assert chat.result is not None
+    assert chat.result.answer == "Resultado final."
+    assert chat.result.message_id == "message-final"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target_kind", ["AGENT", "NETWORK"])
+async def test_reattach_run_state_exposes_typed_intermediate_snapshot(
+    target_kind: str,
+) -> None:
+    terminal_type = "done" if target_kind == "AGENT" else "execution_completed"
+
+    class SnapshotTransport(_FakeTransport):
+        async def stream_new_run(self, **kwargs) -> AsyncIterator[SseFrame]:
+            del kwargs
+            self.calls.append("new")
+            yield _event_frame("meta", 1, run_kind=target_kind)
+            raise WoobeConnectionError("connection lost")
+
+        async def stream_run(self, *, key: str, run_id: str) -> AsyncIterator[SseFrame]:
+            del key
+            assert run_id == "run-1"
+            self.calls.append("reattach")
+            yield _event_frame(
+                "run.state",
+                5,
+                {
+                    "status": "running",
+                    "output": "partial final candidate",
+                    "messages": [
+                        {
+                            "message_id": "message-progress-1",
+                            "content": "Vou procurar.",
+                            "phase": "search",
+                            "output_mode": "intermediate",
+                            "partial": False,
+                            "status": "completed",
+                        },
+                        {
+                            "message_id": "message-progress-2",
+                            "content": "Achei algo. Vou validar.",
+                            "phase": "verification",
+                            "output_mode": "intermediate",
+                            "partial": False,
+                            "status": "completed",
+                        },
+                    ],
+                },
+                run_kind=target_kind,
+            )
+            payload = (
+                {"answer": "Resposta final.", "message_id": "message-final"}
+                if target_kind == "AGENT"
+                else {"output": "Resposta final.", "message_id": "message-final"}
+            )
+            yield _event_frame(
+                terminal_type,
+                6,
+                payload,
+                run_kind=target_kind,
+            )
+
+    transport = SnapshotTransport()
+    woobe = Woobe(base_url="http://unused", reconnect_base_delay_seconds=0)
+    woobe._transport = transport
+    target = (
+        woobe.connect.agent(alias="support", key="runtime-key")
+        if target_kind == "AGENT"
+        else woobe.connect.network(alias="support-network", key="runtime-key")
+    )
+    chat = target.chat(input="Pesquise")
+
+    events = [event async for event in chat.events()]
+
+    assert transport.calls == ["new", "reattach"]
+    assert [event.type for event in events] == ["meta", "run.state", terminal_type]
+    snapshot = events[1].assistant_messages
+    assert [message.message_id for message in snapshot] == [
+        "message-progress-1",
+        "message-progress-2",
+    ]
+    assert [message.content for message in snapshot] == [
+        "Vou procurar.",
+        "Achei algo. Vou validar.",
+    ]
+    assert events[1].assistant_message is None
+    assert chat.result is not None
+    assert chat.result.answer == "Resposta final."
+    assert chat.result.message_id == "message-final"
+
+
+@pytest.mark.asyncio
 async def test_terminal_stream_is_closed_before_chat_finishes() -> None:
     class ClosingTransport(_FakeTransport):
         def __init__(self) -> None:

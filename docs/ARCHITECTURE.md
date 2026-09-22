@@ -28,7 +28,9 @@ Woobe
        |-- agent(alias, key)
        `-- network(alias, key)
               |
-              |-- validate_output_context(model_or_schema)
+              |-- validate_contracts(output_contract, external_context)
+              |-- validate_output_contract(model_or_schema)
+              |-- validate_external_context(model_or_schema)
               |
               `-- chat(input, session_id?, external_context?)
                          |
@@ -37,7 +39,7 @@ Woobe
 
 `alias` is an application-side label. Runtime routing and authorization are determined by the Runtime Key issued by Woobe.
 
-Output Context validation is a preflight client boundary. The SDK may translate a local Pydantic model into JSON Schema and call the Runtime validator, but Woobe remains authoritative for the published Release contract and compatibility result.
+Runtime contract validation is a preflight client boundary. The SDK may translate local Pydantic models into JSON Schema and call the unified Runtime validator, but Woobe remains authoritative for the published Release contracts and compatibility result. Both output_contract and external_context are declared on every validation request; either may be null. Runtime External Context values supplied to chat() are still validated separately during Run Acceptance.
 
 ## Package layout
 

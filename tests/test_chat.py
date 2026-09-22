@@ -131,6 +131,128 @@ async def test_events_start_request_and_yield_only_semantic_woobe_events() -> No
 
 
 @pytest.mark.asyncio
+async def test_chat_exposes_typed_terminal_result() -> None:
+    class ResultTransport(_FakeTransport):
+        async def stream_new_run(self, **kwargs) -> AsyncIterator[SseFrame]:
+            del kwargs
+            self.calls.append("new")
+            yield _event_frame("meta", 1, {"trace_id": "trace-1"})
+            yield _event_frame(
+                "done",
+                2,
+                {
+                    "answer": "Olá Alberto",
+                    "message_id": "message-1",
+                    "trace_id": "trace-1",
+                    "usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 20,
+                        "total_tokens": 30,
+                        "cost_usd": 0.001,
+                    },
+                    "sources": [
+                        {
+                            "document_title": "Manual",
+                            "document_id": "doc-1",
+                            "score": 0.9,
+                        }
+                    ],
+                    "tool_calls": [
+                        {
+                            "tool_call_id": "tool-call-1",
+                            "tool_name": "lookup_customer",
+                            "success": True,
+                            "duration_ms": 12,
+                        }
+                    ],
+                    "model": "deepseek-v4-flash",
+                    "provider": "custom",
+                    "provider_model_id": "provider-model-1",
+                    "provider_credential_id": "credential-1",
+                    "fallback_used": False,
+                    "latency_ms": 1234,
+                    "parsed_output": {"message": "Olá Alberto"},
+                    "output_parse_error": None,
+                    "execution_events": [],
+                    "diagnostics": {
+                        "schema_version": 5,
+                        "agent_runtime_latency_ms": 1200,
+                        "llm_call_count": 1,
+                        "tool_call_count": 1,
+                        "usage_complete": True,
+                        "cost_status": "known",
+                        "execution_context": "production",
+                        "execution_strategy": "standard",
+                        "agent_release_id": "release-1",
+                        "agent_release_version": "v1.2.3",
+                        "fallback_used": False,
+                    },
+                },
+            )
+
+    transport = ResultTransport()
+    woobe = Woobe(base_url="http://unused", reconnect_base_delay_seconds=0)
+    woobe._transport = transport
+    agent = woobe.connect.agent(alias="support", key="runtime-key")
+    chat = agent.chat(input="Olá")
+
+    assert chat.result is None
+
+    events = [event async for event in chat.events()]
+
+    assert [event.type for event in events] == ["meta", "done"]
+    assert chat.result is not None
+    assert chat.result.answer == "Olá Alberto"
+    assert chat.result.run_id == "run-1"
+    assert chat.result.session_id == "session-1"
+    assert chat.result.message_id == "message-1"
+    assert chat.result.usage is not None
+    assert chat.result.usage.total_tokens == 30
+    assert chat.result.usage.cost_usd == 0.001
+    assert chat.result.sources[0].document_title == "Manual"
+    assert chat.result.tool_calls[0].tool_name == "lookup_customer"
+    assert chat.result.model == "deepseek-v4-flash"
+    assert chat.result.provider == "custom"
+    assert chat.result.parsed_output == {"message": "Olá Alberto"}
+    assert chat.result.diagnostics is not None
+    assert chat.result.diagnostics.agent_release_id == "release-1"
+    assert chat.result.diagnostics.agent_release_version == "v1.2.3"
+    assert chat.result.diagnostics.execution_strategy == "standard"
+
+
+@pytest.mark.asyncio
+async def test_network_completed_output_is_normalized_to_answer() -> None:
+    class NetworkResultTransport(_FakeTransport):
+        async def stream_new_run(self, **kwargs) -> AsyncIterator[SseFrame]:
+            del kwargs
+            self.calls.append("new")
+            yield _event_frame(
+                "execution_completed",
+                1,
+                {
+                    "output": "Network answer",
+                    "trace_id": "trace-network",
+                    "parsed_output": {"answer": "Network answer"},
+                },
+                run_kind="NETWORK",
+            )
+
+    transport = NetworkResultTransport()
+    woobe = Woobe(base_url="http://unused", reconnect_base_delay_seconds=0)
+    woobe._transport = transport
+    network = woobe.connect.network(alias="network", key="runtime-key")
+    chat = network.chat(input="Olá")
+
+    _ = [event async for event in chat.events()]
+
+    assert chat.result is not None
+    assert chat.result.answer == "Network answer"
+    assert chat.result.run_kind == "NETWORK"
+    assert chat.result.terminal_event_type == "execution_completed"
+    assert chat.result.parsed_output == {"answer": "Network answer"}
+
+
+@pytest.mark.asyncio
 async def test_external_context_is_forwarded_only_on_initial_run_request() -> None:
     transport = _FakeTransport(disconnect_once=True)
     woobe = Woobe(base_url="http://unused", reconnect_base_delay_seconds=0)

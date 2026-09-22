@@ -122,8 +122,25 @@ For Network runtime, the SDK creates one idempotency key per Chat and reuses it 
 
 ## Intermediate Assistant messages
 
-A Run may publish a durable Assistant message and continue executing. These events are
-distinct from terminal output:
+Intermediate Assistant delivery is controlled by the Agent Release execution policy,
+not by the SDK:
+
+```json
+{
+  "runtime_config": {
+    "execution": {
+      "intermediate_messages": true
+    }
+  }
+}
+```
+
+When that setting is absent or `false`, the runtime keeps intermediate communication
+internal and the SDK receives only normal activity plus terminal Assistant output. The
+SDK does not enable, persist, or manufacture intermediate messages.
+
+When enabled, a Run may publish a durable Assistant message and continue executing.
+These events are distinct from terminal output:
 
 ```text
 assistant_message_delta

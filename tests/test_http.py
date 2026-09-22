@@ -67,8 +67,20 @@ async def test_stream_new_run_serializes_external_context(
 
 
 @pytest.mark.asyncio
-async def test_validate_output_context_calls_public_validator() -> None:
+async def test_validate_contracts_calls_public_validator() -> None:
     captured: dict = {}
+
+    output_contract = {
+        "type": "object",
+        "properties": {"message": {"type": "string"}},
+        "required": ["message"],
+    }
+    external_context = {
+        "type": "object",
+        "properties": {"age": {"type": "integer"}},
+        "required": ["age"],
+        "additionalProperties": False,
+    }
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured["path"] = request.url.path
@@ -86,24 +98,34 @@ async def test_validate_output_context_calls_public_validator() -> None:
                     "environment": "production",
                     "release_id": "release-1",
                     "release_version": "v2.0.0",
-                    "expected_output_context": {
-                        "type": "object",
-                        "properties": {"message": {"type": "string"}},
-                        "required": ["message"],
+                    "output_contract": {
+                        "valid": True,
+                        "expected": output_contract,
+                        "received": output_contract,
+                        "expected_hash": "output",
+                        "received_hash": "output",
+                        "issues": [],
                     },
-                    "received_output_context": {
-                        "type": "object",
-                        "properties": {"message": {"type": "integer"}},
-                        "required": ["message"],
+                    "external_context": {
+                        "valid": False,
+                        "expected": external_context,
+                        "received": {
+                            "type": "object",
+                            "properties": {"age": {"type": "string"}},
+                            "required": ["age"],
+                            "additionalProperties": False,
+                        },
+                        "expected_hash": "expected",
+                        "received_hash": "received",
+                        "issues": [
+                            {
+                                "code": "FIELD_TYPE_MISMATCH",
+                                "field": "age",
+                                "expected": "integer",
+                                "received": "string",
+                            }
+                        ],
                     },
-                    "expected_hash": "expected",
-                    "received_hash": "received",
-                    "issues": [
-                        {
-                            "code": "OUTPUT_CONTEXT_MISMATCH",
-                            "message": "SDK output_context does not match",
-                        }
-                    ],
                 },
             },
         )
@@ -114,35 +136,86 @@ async def test_validate_output_context_calls_public_validator() -> None:
         transport=httpx.MockTransport(handler),
     )
     try:
-        data = await transport.validate_output_context(
+        data = await transport.validate_contracts(
             key="runtime-key",
-            output_context={
-                "type": "object",
-                "properties": {"message": {"type": "integer"}},
-                "required": ["message"],
-            },
+            output_contract=output_contract,
+            external_context=external_context,
         )
     finally:
         await transport.aclose()
 
     assert captured == {
-        "path": "/v1/output-context/validate",
+        "path": "/v1/contracts/validate",
         "authorization": "Bearer runtime-key",
         "accept": "application/json",
         "payload": {
-            "output_context": {
-                "type": "object",
-                "properties": {"message": {"type": "integer"}},
-                "required": ["message"],
-            }
+            "output_contract": output_contract,
+            "external_context": external_context,
         },
     }
     assert data["valid"] is False
-    assert data["issues"][0]["code"] == "OUTPUT_CONTEXT_MISMATCH"
+    assert data["external_context"]["issues"][0]["code"] == "FIELD_TYPE_MISMATCH"
 
 
 @pytest.mark.asyncio
-async def test_validate_output_context_rejects_invalid_response_envelope() -> None:
+async def test_validate_contracts_always_declares_both_contracts() -> None:
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "data": {
+                    "valid": True,
+                    "target_type": "agent",
+                    "target_id": "agent-1",
+                    "environment": "production",
+                    "release_id": "release-1",
+                    "release_version": "v1.0.0",
+                    "output_contract": {
+                        "valid": True,
+                        "expected": None,
+                        "received": None,
+                        "expected_hash": "none",
+                        "received_hash": "none",
+                        "issues": [],
+                    },
+                    "external_context": {
+                        "valid": True,
+                        "expected": None,
+                        "received": None,
+                        "expected_hash": "none",
+                        "received_hash": "none",
+                        "issues": [],
+                    },
+                },
+            },
+        )
+
+    transport = RuntimeTransport(base_url="https://runtime.test", timeout_seconds=1)
+    transport._client = httpx.AsyncClient(
+        base_url="https://runtime.test",
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        await transport.validate_contracts(
+            key="runtime-key",
+            output_contract=None,
+            external_context=None,
+        )
+    finally:
+        await transport.aclose()
+
+    assert captured["payload"] == {
+        "output_contract": None,
+        "external_context": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_validate_contracts_rejects_invalid_response_envelope() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=[])
 
@@ -153,9 +226,10 @@ async def test_validate_output_context_rejects_invalid_response_envelope() -> No
     )
     try:
         with pytest.raises(WoobeProtocolError, match="invalid envelope"):
-            await transport.validate_output_context(
+            await transport.validate_contracts(
                 key="runtime-key",
-                output_context=None,
+                output_contract=None,
+                external_context=None,
             )
     finally:
         await transport.aclose()

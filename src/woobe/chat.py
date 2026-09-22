@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import aclosing
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -14,6 +15,7 @@ from woobe.errors import (
     WoobeStreamGapError,
 )
 from woobe.events import WoobeEvent
+from woobe.results import ChatResult
 
 TargetKind = Literal["AGENT", "NETWORK"]
 _TERMINAL_STATUSES = {"completed", "failed", "cancelled", "timed_out", "uncertain"}
@@ -58,6 +60,7 @@ class Chat:
             dict(external_context) if external_context is not None else None
         )
         self._run_id: str | None = None
+        self._result: ChatResult | None = None
         self._last_sequence: int | None = None
         self._max_reconnect_attempts = max_reconnect_attempts
         self._reconnect_base_delay_seconds = reconnect_base_delay_seconds
@@ -75,6 +78,10 @@ class Chat:
     @property
     def run_id(self) -> str | None:
         return self._run_id
+
+    @property
+    def result(self) -> ChatResult | None:
+        return self._result
 
     async def events(self):
         """Execute lazily and yield canonical semantic ``WoobeEvent`` objects.
@@ -104,19 +111,24 @@ class Chat:
                     else self._transport.stream_run(key=self._key, run_id=self._require_run_id())
                 )
 
-                async for frame in source:
-                    parsed = parse_runtime_frame(frame)
-                    if isinstance(parsed, RuntimeControlFrame):
-                        self._handle_control_frame(parsed)
-                        continue
+                async with aclosing(source):
+                    async for frame in source:
+                        parsed = parse_runtime_frame(frame)
+                        if isinstance(parsed, RuntimeControlFrame):
+                            self._handle_control_frame(parsed)
+                            continue
 
-                    self._accept_identity(parsed)
-                    if not self._accept_sequence(parsed):
-                        continue
+                        self._accept_identity(parsed)
+                        if not self._accept_sequence(parsed):
+                            continue
 
-                    yield parsed
-                    if self._is_terminal(parsed):
-                        return
+                        terminal = self._is_terminal(parsed)
+                        if self._has_result(parsed):
+                            self._result = ChatResult.from_event(parsed)
+
+                        yield parsed
+                        if terminal:
+                            return
 
                 raise WoobeConnectionError("Runtime stream ended before terminal state")
 
@@ -234,6 +246,15 @@ class Chat:
             return False
         status = event.payload.get("status")
         return isinstance(status, str) and status.lower() in _TERMINAL_STATUSES
+
+    @staticmethod
+    def _has_result(event: WoobeEvent) -> bool:
+        if event.type in {"done", "execution_completed"}:
+            return True
+        if event.type != "run.state":
+            return False
+        status = event.payload.get("status")
+        return isinstance(status, str) and status.lower() == "completed"
 
     def _require_run_id(self) -> str:
         if self._run_id is None:

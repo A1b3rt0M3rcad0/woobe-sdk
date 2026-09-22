@@ -143,7 +143,23 @@ async for event in chat.events():
 ```
 
 `assistant_message_delta` and `assistant_message_completed` describe intermediate
-Assistant messages only. They do not replace `ChatResult`. `chat.result` remains the
+Assistant messages only. They do not replace `ChatResult`.
+
+For reconnect/reattach, a `run.state` event may carry the already-completed durable
+messages in `payload.messages`. The SDK exposes the same typed model through
+`event.assistant_messages`:
+
+```python
+async for event in chat.events():
+    for message in event.assistant_messages:
+        print(message.message_id, message.content)
+```
+
+Live Assistant events return a one-item list; a `run.state` snapshot may return
+multiple messages. The SDK does not synthesize fake events from the snapshot; the
+original `run.state` envelope remains observable.
+
+They do not replace `ChatResult`. `chat.result` remains the
 terminal Run result, so existing consumers that only care about the final answer keep
 their current contract.
 

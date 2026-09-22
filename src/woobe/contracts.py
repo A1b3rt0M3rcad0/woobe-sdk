@@ -118,7 +118,13 @@ def output_contract_schema(output_contract: OutputContractInput) -> dict[str, An
 def external_context_contract_schema(
     external_context: ExternalContextContractInput,
 ) -> dict[str, Any] | None:
-    return contract_schema(external_context)
+    schema = contract_schema(external_context)
+    if schema is None:
+        return None
+    if schema.get("type") == "object" or "properties" in schema:
+        schema = dict(schema)
+        schema.setdefault("additionalProperties", False)
+    return schema
 
 
 def output_context_schema(output_context: OutputContextInput) -> dict[str, Any] | None:

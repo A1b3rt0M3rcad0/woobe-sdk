@@ -191,3 +191,19 @@ class ChatResult(BaseModel):
         payload["answer"] = answer
 
         return cls.model_validate(payload)
+
+    @property
+    def agent_release_id(self) -> str | None:
+        return self.diagnostics.agent_release_id if self.diagnostics is not None else None
+
+    @property
+    def agent_release_version(self) -> str | None:
+        return self.diagnostics.agent_release_version if self.diagnostics is not None else None
+
+    @property
+    def execution_context(self) -> str | None:
+        return self.diagnostics.execution_context if self.diagnostics is not None else None
+
+    @property
+    def execution_strategy(self) -> str | None:
+        return self.diagnostics.execution_strategy if self.diagnostics is not None else None

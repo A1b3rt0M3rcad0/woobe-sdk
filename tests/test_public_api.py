@@ -104,6 +104,7 @@ async def test_agent_validates_both_runtime_contracts() -> None:
                 "required": ["name", "age"],
                 "title": "SupportContext",
                 "type": "object",
+                "additionalProperties": False,
             },
         }
     ]

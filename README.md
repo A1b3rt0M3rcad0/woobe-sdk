@@ -81,9 +81,11 @@ if result is not None:
         print(result.usage.total_tokens)
         print(result.usage.cost_usd)
 
+    print(result.agent_release_version)
+    print(result.execution_strategy)
+
     if result.diagnostics is not None:
-        print(result.diagnostics.agent_release_version)
-        print(result.diagnostics.execution_strategy)
+        print(result.diagnostics.agent_runtime_latency_ms)
 ```
 
 `result` is `None` before completion and for terminal failures that do not produce a completed result. Agent `done` and Network `execution_completed` events are normalized to the same `ChatResult` surface. Raw streaming events remain available unchanged through `events()`.

@@ -318,7 +318,8 @@ async def test_intermediate_assistant_messages_are_typed_and_do_not_replace_term
         else woobe.connect.network(alias="support-network", key="runtime-key")
     )
 
-    events = [event async for event in target.chat(input="Check it").events()]
+    chat = target.chat(input="Check it")
+    events = [event async for event in chat.events()]
 
     assert [event.type for event in events] == [
         "assistant_message_delta",
@@ -337,12 +338,9 @@ async def test_intermediate_assistant_messages_are_typed_and_do_not_replace_term
     assert completed.phase == "verification"
     assert completed.status == "completed"
     assert events[2].assistant_message is None
-
-    chat = target.chat(input="unused")
-    # The terminal result contract remains separate from intermediate messages.
-    # A second Chat is intentionally not consumed here; result ownership is covered
-    # by the existing terminal-result tests for Agent and Network.
-    assert chat.result is None
+    assert chat.result is not None
+    assert chat.result.answer == "Final answer"
+    assert chat.result.message_id == "message-final"
 
 
 @pytest.mark.asyncio

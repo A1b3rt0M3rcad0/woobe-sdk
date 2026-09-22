@@ -33,8 +33,8 @@ Woobe
               |-- validate_external_context(model_or_schema)
               |
               `-- chat(input, session_id?, external_context?)
-                         |
-                         `-- events() -> AsyncIterator[WoobeEvent]
+                         |-- events() -> AsyncIterator[WoobeEvent]
+                         `-- result -> ChatResult | None
 ```
 
 `alias` is an application-side label. Runtime routing and authorization are determined by the Runtime Key issued by Woobe.
@@ -115,6 +115,10 @@ GET reattach same Run
 ```
 
 Once identity is known, a stream cannot change Run, Session or Run kind. A violation is a protocol error.
+
+A completed Agent `done` or Network `execution_completed` event is also projected into a typed `ChatResult`. This projection is additive: the canonical `WoobeEvent` remains the streaming truth, while `Chat.result` provides ergonomic access to answer, usage, sources, Tool calls, provider/model identity, structured output and execution diagnostics.
+
+The SDK captures terminal results before yielding the terminal event, so code handling `done` can already inspect `chat.result`. Failed/cancelled terminal events remain events and do not fabricate a successful result.
 
 ## Dependency direction
 

@@ -3,7 +3,11 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from woobe.contracts import output_context_schema
+from woobe.contracts import (
+    contract_schema,
+    external_context_contract_schema,
+    output_context_schema,
+)
 
 
 class Detail(BaseModel):
@@ -15,8 +19,8 @@ class SupportOutput(BaseModel):
     detail: Detail
 
 
-def test_output_context_schema_inlines_nested_pydantic_refs() -> None:
-    schema = output_context_schema(SupportOutput)
+def test_contract_schema_inlines_nested_pydantic_refs() -> None:
+    schema = contract_schema(SupportOutput)
 
     assert schema is not None
     assert "$defs" not in schema
@@ -34,8 +38,8 @@ def test_output_context_schema_inlines_nested_pydantic_refs() -> None:
     }
 
 
-def test_output_context_schema_accepts_model_instance() -> None:
-    schema = output_context_schema(
+def test_contract_schema_accepts_model_instance() -> None:
+    schema = contract_schema(
         SupportOutput(
             message="ok",
             detail=Detail(flags=[True]),
@@ -46,7 +50,7 @@ def test_output_context_schema_accepts_model_instance() -> None:
     assert schema["properties"]["message"]["type"] == "string"
 
 
-def test_output_context_schema_inlines_explicit_json_schema_refs() -> None:
+def test_contract_schema_inlines_explicit_json_schema_refs() -> None:
     raw = {
         "$defs": {
             "Detail": {
@@ -60,7 +64,7 @@ def test_output_context_schema_inlines_explicit_json_schema_refs() -> None:
         "required": ["detail"],
     }
 
-    assert output_context_schema(raw) == {
+    assert contract_schema(raw) == {
         "type": "object",
         "properties": {
             "detail": {
@@ -73,7 +77,15 @@ def test_output_context_schema_inlines_explicit_json_schema_refs() -> None:
     }
 
 
-def test_output_context_schema_keeps_explicit_dict() -> None:
+def test_external_context_uses_same_schema_conversion() -> None:
+    schema = external_context_contract_schema(SupportOutput)
+
+    assert schema is not None
+    assert "$defs" not in schema
+    assert schema["properties"]["message"]["type"] == "string"
+
+
+def test_output_context_schema_remains_backward_compatible() -> None:
     raw = {
         "type": "object",
         "properties": {"message": {"type": "string"}},
@@ -83,6 +95,6 @@ def test_output_context_schema_keeps_explicit_dict() -> None:
     assert output_context_schema(raw) == raw
 
 
-def test_output_context_schema_rejects_unsupported_values() -> None:
-    with pytest.raises(TypeError, match="output_context"):
-        output_context_schema("message: str")  # type: ignore[arg-type]
+def test_contract_schema_rejects_unsupported_values() -> None:
+    with pytest.raises(TypeError, match="contract"):
+        contract_schema("message: str")  # type: ignore[arg-type]

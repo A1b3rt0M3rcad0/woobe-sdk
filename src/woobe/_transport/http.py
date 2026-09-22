@@ -175,6 +175,7 @@ class RuntimeTransport:
         return {
             "Authorization": f"Bearer {key}",
             "Accept": "text/event-stream",
+            "Accept-Encoding": "identity",
             "Content-Type": "application/json",
         }
 

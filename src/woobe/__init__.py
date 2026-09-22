@@ -7,7 +7,7 @@ from woobe.contracts import (
     RuntimeContractValidation,
     RuntimeContractsValidation,
 )
-from woobe.events import WoobeEvent
+from woobe.events import AssistantMessage, WoobeEvent
 from woobe.results import (
     ChatResult,
     ExecutionDiagnostics,
@@ -19,6 +19,7 @@ from woobe.results import (
 )
 
 __all__ = [
+    "AssistantMessage",
     "ChatResult",
     "ExecutionDiagnostics",
     "ExecutionEvent",

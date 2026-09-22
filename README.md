@@ -58,6 +58,38 @@ async for event in chat.events():
 
 The Runtime validates `external_context` against the Agent or Network Release contract during Acceptance. The SDK sends it only when creating the Run; reattach observes the already accepted Run and does not resend context.
 
+After a completed Run, `Chat.result` exposes the terminal Runtime payload as typed SDK objects:
+
+```python
+chat = agent.chat(
+    input="O que perguntei antes?",
+    session_id=session_id,
+)
+
+async for event in chat.events():
+    if event.type == "token":
+        print(event.payload["content"], end="")
+
+result = chat.result
+if result is not None:
+    print(result.answer)
+    print(result.message_id)
+    print(result.model)
+    print(result.provider)
+
+    if result.usage is not None:
+        print(result.usage.total_tokens)
+        print(result.usage.cost_usd)
+
+    if result.diagnostics is not None:
+        print(result.diagnostics.agent_release_version)
+        print(result.diagnostics.execution_strategy)
+```
+
+`result` is `None` before completion and for terminal failures that do not produce a completed result. Agent `done` and Network `execution_completed` events are normalized to the same `ChatResult` surface. Raw streaming events remain available unchanged through `events()`.
+
+The typed result includes `Usage`, `Source`, `ToolCall`, `FallbackInfo`, `ExecutionEvent` and `ExecutionDiagnostics` objects. Unknown future Runtime fields are preserved so the SDK remains forward compatible with additive payload changes.
+
 
 ## Runtime contract validation
 

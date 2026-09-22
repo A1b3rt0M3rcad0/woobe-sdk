@@ -120,6 +120,37 @@ For Agent runtime, the SDK fails closed instead of automatically POSTing the sam
 
 For Network runtime, the SDK creates one idempotency key per Chat and reuses it if the initial create-and-stream request must be retried before a Run ID is known.
 
+## Intermediate Assistant messages
+
+A Run may publish a durable Assistant message and continue executing. These events are
+distinct from terminal output:
+
+```text
+assistant_message_delta
+assistant_message_completed
+...
+done / execution_completed
+```
+
+Both Agent and Network chats expose them through the same `Chat.events()` iterator.
+The SDK keeps the generic event envelope and also provides a typed projection:
+
+```python
+async for event in chat.events():
+    message = event.assistant_message
+    if message is not None:
+        print(message.message_id, message.content)
+```
+
+`assistant_message_delta` and `assistant_message_completed` describe intermediate
+Assistant messages only. They do not replace `ChatResult`. `chat.result` remains the
+terminal Run result, so existing consumers that only care about the final answer keep
+their current contract.
+
+For Network Runs, only public Root-Agent intermediate messages are surfaced. Messages
+produced by delegated child Agents remain internal to Network orchestration.
+
+
 ## Terminal events
 
 Terminal semantic events or terminal `run.state` end `events()` normally. Agent or Network execution failure remains a Runtime semantic outcome and is distinct from a transport exception.

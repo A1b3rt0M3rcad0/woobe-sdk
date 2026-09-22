@@ -40,6 +40,29 @@ class WoobeEvent(BaseModel):
     payload: dict[str, Any]
 
     @property
+    def assistant_messages(self) -> list[AssistantMessage]:
+        """Return typed public intermediate Assistant messages carried by this event.
+
+        Live assistant_message_* events contain one message. Reattach run.state
+        frames may contain the durable snapshot accumulated before reconnect.
+        """
+
+        message = self.assistant_message
+        if message is not None:
+            return [message]
+        if self.type != "run.state":
+            return []
+
+        raw = self.payload.get("messages")
+        if not isinstance(raw, list):
+            return []
+        return [
+            AssistantMessage.model_validate(item)
+            for item in raw
+            if isinstance(item, dict)
+        ]
+
+    @property
     def assistant_message(self) -> AssistantMessage | None:
         """Return a typed intermediate Assistant message when this event carries one."""
 

@@ -59,9 +59,9 @@ async for event in chat.events():
 The Runtime validates `external_context` against the Agent or Network Release contract during Acceptance. The SDK sends it only when creating the Run; reattach observes the already accepted Run and does not resend context.
 
 
-## Output Context validation
+## Runtime contract validation
 
-The SDK can validate a local output model against the Output Contract of the Release bound to the Runtime Key before starting a Run.
+The SDK can validate both client-side contract declarations against the immutable Release bound to the Runtime Key before starting a Run.
 
 ```python
 from pydantic import BaseModel
@@ -74,6 +74,11 @@ class SupportOutput(BaseModel):
     confidence: float
 
 
+class SupportContext(BaseModel):
+    name: str
+    age: int
+
+
 woobe = Woobe()
 
 agent = woobe.connect.agent(
@@ -81,30 +86,36 @@ agent = woobe.connect.agent(
     key="...",
 )
 
-validation = await agent.validate_output_context(SupportOutput)
-
-if not validation.valid:
-    for issue in validation.issues:
-        print(issue.code, issue.message)
-```
-
-`validate_output_context(...)` accepts a Pydantic `BaseModel` type, a model instance, an explicit JSON Schema `dict`, or `None`. Pydantic local references are inlined before the schema is sent to `POST /v1/output-context/validate`.
-
-The Runtime Key determines the Agent or Network and the published environment being validated. The response includes the Release identity, normalized expected and received schemas, deterministic schema hashes, and mismatch issues.
-
-Validation is explicit and separate from `chat()`; the SDK does not add a hidden contract request to each Run.
-
-The same surface is available for Networks:
-
-```python
-network = woobe.connect.network(
-    alias="sales-network",
-    key="...",
+validation = await agent.validate_contracts(
+    output_contract=SupportOutput,
+    external_context=SupportContext,
 )
 
-async for event in network.chat(input="Qual é o próximo passo?").events():
-    print(event)
+if not validation.valid:
+    for issue in validation.output_contract.issues:
+        print("output:", issue.code, issue.field)
+    for issue in validation.external_context.issues:
+        print("external_context:", issue.code, issue.field)
 ```
+
+`validate_contracts(...)` always declares both public contracts. Each argument accepts a Pydantic `BaseModel` type, a model instance, an explicit JSON Schema `dict`, or `None`. Local Pydantic `$ref` definitions are inlined before the request is sent to `POST /v1/contracts/validate`.
+
+The Runtime Key determines the Agent or Network and the published `staging` or `production` Release being checked. The result contains the Release identity plus separate normalized comparisons for `output_contract` and `external_context`, including deterministic hashes and field-level mismatch issues.
+
+For focused checks, the same target also exposes:
+
+```python
+output = await agent.validate_output_contract(SupportOutput)
+external = await agent.validate_external_context(SupportContext)
+```
+
+The older `validate_output_context(...)` name remains available as a backward-compatible alias for `validate_output_contract(...)`.
+
+These calls validate the SDK's declared contract shape against the published Release. Runtime External Context values passed to `chat(external_context=...)` are still validated authoritatively during Run Acceptance, including required/default/session semantics.
+
+Validation is explicit and separate from `chat()`; the SDK does not add a hidden contract request to every Run.
+
+The same validation surface is available for Networks.
 
 ## Runtime model
 

@@ -218,6 +218,10 @@ async def test_chat_exposes_typed_terminal_result() -> None:
     assert chat.result.diagnostics.agent_release_id == "release-1"
     assert chat.result.diagnostics.agent_release_version == "v1.2.3"
     assert chat.result.diagnostics.execution_strategy == "standard"
+    assert chat.result.agent_release_id == "release-1"
+    assert chat.result.agent_release_version == "v1.2.3"
+    assert chat.result.execution_context == "production"
+    assert chat.result.execution_strategy == "standard"
 
 
 @pytest.mark.asyncio
@@ -250,6 +254,33 @@ async def test_network_completed_output_is_normalized_to_answer() -> None:
     assert chat.result.run_kind == "NETWORK"
     assert chat.result.terminal_event_type == "execution_completed"
     assert chat.result.parsed_output == {"answer": "Network answer"}
+
+
+@pytest.mark.asyncio
+async def test_terminal_stream_is_closed_before_chat_finishes() -> None:
+    class ClosingTransport(_FakeTransport):
+        def __init__(self) -> None:
+            super().__init__()
+            self.closed = False
+
+        async def stream_new_run(self, **kwargs) -> AsyncIterator[SseFrame]:
+            del kwargs
+            try:
+                yield _event_frame("done", 1, {"answer": "ok"})
+            finally:
+                self.closed = True
+
+    transport = ClosingTransport()
+    woobe = Woobe(base_url="http://unused", reconnect_base_delay_seconds=0)
+    woobe._transport = transport
+    agent = woobe.connect.agent(alias="support", key="runtime-key")
+    chat = agent.chat(input="Olá")
+
+    _ = [event async for event in chat.events()]
+
+    assert transport.closed is True
+    assert chat.result is not None
+    assert chat.result.answer == "ok"
 
 
 @pytest.mark.asyncio

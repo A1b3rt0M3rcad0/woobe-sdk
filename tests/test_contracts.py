@@ -83,6 +83,7 @@ def test_external_context_uses_same_schema_conversion() -> None:
     assert schema is not None
     assert "$defs" not in schema
     assert schema["properties"]["message"]["type"] == "string"
+    assert schema["additionalProperties"] is False
 
 
 def test_output_context_schema_remains_backward_compatible() -> None:

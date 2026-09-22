@@ -53,21 +53,25 @@ class RuntimeTransport:
         ):
             yield frame
 
-    async def validate_output_context(
+    async def validate_contracts(
         self,
         *,
         key: str,
-        output_context: dict[str, Any] | None,
+        output_contract: dict[str, Any] | None,
+        external_context: dict[str, Any] | None,
     ) -> dict[str, Any]:
         try:
             response = await self._http().post(
-                "/v1/output-context/validate",
+                "/v1/contracts/validate",
                 headers=self._json_headers(key),
-                json={"output_context": output_context},
+                json={
+                    "output_contract": output_contract,
+                    "external_context": external_context,
+                },
             )
         except httpx.RequestError as exc:
             raise WoobeConnectionError(
-                "Could not validate Woobe Output Context"
+                "Could not validate Woobe Runtime contracts"
             ) from exc
 
         await self._raise_for_status(response)
@@ -75,17 +79,17 @@ class RuntimeTransport:
             body = response.json()
         except ValueError as exc:
             raise WoobeProtocolError(
-                "Output Context validation response contains invalid JSON"
+                "Runtime contract validation response contains invalid JSON"
             ) from exc
 
         if not isinstance(body, dict):
             raise WoobeProtocolError(
-                "Output Context validation response has an invalid envelope"
+                "Runtime contract validation response has an invalid envelope"
             )
         data = body.get("data")
         if body.get("success") is not True or not isinstance(data, dict):
             raise WoobeProtocolError(
-                "Output Context validation response has an invalid envelope"
+                "Runtime contract validation response has an invalid envelope"
             )
         return data
 

@@ -1,8 +1,18 @@
-# Woobe SDK documentation
+# Woobe SDK Documentation
 
-This directory documents the Python SDK boundary and the Runtime API semantics it relies on.
+This directory contains the canonical engineering and runtime-contract documentation for Woobe SDK.
 
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — package boundaries, public surface and design rules.
-- [`RUNTIME_STREAMING.md`](RUNTIME_STREAMING.md) — lazy execution, event streaming, sequence handling and reattach behavior.
+## Core documentation
 
-The SDK documentation describes client behavior. Woobe server-side execution architecture remains authoritative in the main Woobe repository.
+- [Architecture](ARCHITECTURE.md) — package boundaries and client/runtime responsibility.
+- [Runtime streaming](RUNTIME_STREAMING.md) — Runtime Protocol v2, SSE, sequence and reattach behavior.
+- [Upgrading](UPGRADING.md) — package compatibility and migration guidance.
+- [Public release checklist](PUBLIC_RELEASE_CHECKLIST.md) — final package/release verification.
+
+## Coding-agent documentation
+
+- [Domain index](agents/DOMAIN_INDEX.md) — code ownership and where changes belong.
+- [Cross-cutting invariants](agents/INVARIANTS.md) — rules that must remain true across the SDK.
+- [Change guide](agents/CHANGE_GUIDE.md) — routing and validation guidance by change type.
+
+Repository-level contribution, licensing, security and release policies live at the repository root. Start with [../AGENTS.md](../AGENTS.md) when using a coding agent.

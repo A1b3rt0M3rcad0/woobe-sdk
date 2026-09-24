@@ -284,3 +284,17 @@ ruff check .
 ```
 
 Pull requests run the same quality gate on supported Python versions. The integration branch is `master`.
+
+## Governance and licensing
+
+Woobe SDK is licensed under the [MIT License](LICENSE.md). The SDK license is independent from the licenses that govern the Woobe platform itself; using this client does not relicense Woobe Core or Enterprise software.
+
+Repository policies:
+
+- [Contributing](CONTRIBUTING.md)
+- [Releasing](RELEASING.md)
+- [Security](SECURITY.md)
+- [Licensing](LICENSING.md)
+- [Trademark policy](TRADEMARKS.md)
+- [Changelog](CHANGELOG.md)
+- [Coding-agent entry point](AGENTS.md)

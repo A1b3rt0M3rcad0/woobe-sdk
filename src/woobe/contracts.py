@@ -4,7 +4,6 @@ from typing import Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict
 
-
 RuntimeContractInput: TypeAlias = dict[str, Any] | type[BaseModel] | BaseModel | None
 OutputContractInput: TypeAlias = RuntimeContractInput
 ExternalContextContractInput: TypeAlias = RuntimeContractInput

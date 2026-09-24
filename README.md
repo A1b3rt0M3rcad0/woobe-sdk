@@ -4,7 +4,7 @@ Python SDK for consuming Agents and Agent Networks running on the Woobe Runtime 
 
 The SDK is intentionally a **runtime client**, not a second control plane and not an agent framework. Agent configuration, Releases, Tools, Knowledge, execution strategies and runtime infrastructure remain server-side in Woobe. Applications connect to an already published runtime target and consume its execution events.
 
-> **Pre-release:** the SDK is being initialized together with the Woobe public runtime contract. Public APIs can still change before the first stable release.
+> **Pre-1.0:** the SDK is public and usable, but its APIs can still evolve before the 1.0.0 compatibility boundary.
 
 ## Quick start
 

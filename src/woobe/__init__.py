@@ -4,8 +4,8 @@ from woobe.contracts import (
     OutputContextIssue,
     OutputContextValidation,
     RuntimeContractIssue,
-    RuntimeContractValidation,
     RuntimeContractsValidation,
+    RuntimeContractValidation,
 )
 from woobe.events import WoobeEvent
 from woobe.results import (
